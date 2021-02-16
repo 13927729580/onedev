@@ -16,7 +16,7 @@ import io.onedev.commons.codeassist.grammar.LexerRuleRefElementSpec;
 import io.onedev.commons.codeassist.parser.Element;
 import io.onedev.commons.codeassist.parser.ParseExpect;
 import io.onedev.commons.codeassist.parser.TerminalExpect;
-import io.onedev.server.GeneralException;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobAware;
 import io.onedev.server.buildspec.job.action.condition.ActionCondition;
@@ -48,8 +48,7 @@ public class ActionConditionBehavior extends ANTLRAssistBehavior {
 					protected List<InputSuggestion> match(String matchWith) {
 						if ("criteriaField".equals(spec.getLabel())) {
 							List<String> fields = Lists.newArrayList(
-									Build.NAME_LOG, 
-									Build.NAME_ERROR_MESSAGE);
+									Build.NAME_LOG, Build.NAME_ERROR_MESSAGE, Build.NAME_PULL_REQUEST);
 							JobAware jobAware = getComponent().findParent(JobAware.class);
 							Job job = jobAware.getJob();
 							fields.addAll(job.getParamSpecMap().keySet());
@@ -101,7 +100,7 @@ public class ActionConditionBehavior extends ANTLRAssistBehavior {
 				try {
 					ActionCondition.checkField(job, fieldName, 
 							AntlrUtils.getLexerRule(ActionConditionLexer.ruleNames, suggestedLiteral));
-				} catch (GeneralException e) {
+				} catch (ExplicitException e) {
 					return null;
 				}
 			}

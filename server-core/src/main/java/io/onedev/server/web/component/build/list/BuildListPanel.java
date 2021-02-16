@@ -29,6 +29,7 @@ import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.html.form.TextField;
+import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.markup.html.panel.Panel;
@@ -43,7 +44,7 @@ import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.google.common.collect.Sets;
 
-import io.onedev.server.GeneralException;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.BuildParamManager;
@@ -87,6 +88,7 @@ import io.onedev.server.web.component.savedquery.SavedQueriesOpened;
 import io.onedev.server.web.component.stringchoice.StringMultiChoice;
 import io.onedev.server.web.page.project.builds.detail.dashboard.BuildDashboardPage;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
+import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
 import io.onedev.server.web.util.Cursor;
 import io.onedev.server.web.util.LoadableDetachableDataProvider;
 import io.onedev.server.web.util.PagingHistorySupport;
@@ -132,7 +134,7 @@ public abstract class BuildListPanel extends Panel {
 	private BuildQuery parse(@Nullable String queryString, BuildQuery baseQuery) {
 		try {
 			return BuildQuery.merge(baseQuery, BuildQuery.parse(getProject(), queryString, true, true));
-		} catch (GeneralException e) {
+		} catch (ExplicitException e) {
 			error(e.getMessage());
 			return null;
 		} catch (Exception e) {
@@ -434,7 +436,7 @@ public abstract class BuildListPanel extends Panel {
 				try {
 					return getBuildManager().query(getProject(), queryModel.getObject(), 
 							(int)first, (int)count).iterator();
-				} catch (GeneralException e) {
+				} catch (ExplicitException e) {
 					error(e.getMessage());
 					return new ArrayList<Build>().iterator();
 				}
@@ -446,7 +448,7 @@ public abstract class BuildListPanel extends Panel {
 				if (query != null) {
 					try {
 						return getBuildManager().count(getProject(), query.getCriteria());
-					} catch (GeneralException e) {
+					} catch (ExplicitException e) {
 						error(e.getMessage());
 					}
 				} 
@@ -567,6 +569,26 @@ public abstract class BuildListPanel extends Panel {
 			}
 		});
 		
+		columns.add(new AbstractColumn<Build, Void>(Model.of("Branch/Tag")) {
+
+			@Override
+			public String getCssClass() {
+				return "branch-tag d-none d-lg-table-cell";
+			}
+
+			@Override
+			public void populateItem(Item<ICellPopulator<Build>> cellItem, String componentId,
+					IModel<Build> rowModel) {
+				Build build = rowModel.getObject();
+				if (build.getBranch() != null) 
+					cellItem.add(new Label(componentId, build.getBranch()));
+				else if (build.getTag() != null)
+					cellItem.add(new Label(componentId, build.getTag()));
+				else 
+					cellItem.add(new Label(componentId, "<i>n/a</i>").setEscapeModelStrings(false));
+			}
+		});
+
 		columns.add(new AbstractColumn<Build, Void>(Model.of(Build.NAME_COMMIT)) {
 
 			@Override
@@ -594,6 +616,34 @@ public abstract class BuildListPanel extends Panel {
 			}
 		});
 
+		columns.add(new AbstractColumn<Build, Void>(Model.of(Build.NAME_PULL_REQUEST)) {
+
+			@Override
+			public String getCssClass() {
+				return "pull-request d-none d-xl-table-cell";
+			}
+
+			@Override
+			public void populateItem(Item<ICellPopulator<Build>> cellItem, String componentId,
+					IModel<Build> rowModel) {
+				Build build = rowModel.getObject();
+				if (build.getRequest() != null) {
+					if (SecurityUtils.canReadCode(build.getProject())) {
+						Fragment fragment = new Fragment(componentId, "pullRequestFrag", BuildListPanel.this);
+						Link<Void> link = new BookmarkablePageLink<Void>("link", PullRequestActivitiesPage.class, 
+								PullRequestActivitiesPage.paramsOf(build.getRequest()));
+						link.add(new Label("label", "#" + build.getRequest().getNumber()));
+						fragment.add(link);
+						cellItem.add(fragment);
+					} else {
+						cellItem.add(new Label(componentId, "#" + build.getRequest().getNumber()));
+					}
+				} else {
+					cellItem.add(new Label(componentId, "<i>n/a</i>").setEscapeModelStrings(false));
+				}
+			}
+		});
+		
 		for (String paramName: getListParams()) {
 			columns.add(new AbstractColumn<Build, Void>(Model.of(paramName)) {
 

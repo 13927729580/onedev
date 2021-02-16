@@ -3,7 +3,11 @@ package io.onedev.server.web.component.job.joblist;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
+
+import javax.annotation.Nullable;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
@@ -27,6 +31,7 @@ import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Build.Status;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.build.simplelist.SimpleBuildListPanel;
@@ -38,6 +43,8 @@ import io.onedev.server.web.page.project.builds.ProjectBuildsPage;
 public abstract class JobListPanel extends Panel {
 
 	private final ObjectId commitId;
+	
+	private final String refName;
 	
 	private final List<Job> jobs;
 	
@@ -55,13 +62,17 @@ public abstract class JobListPanel extends Panel {
 		
 	};
 	
-	public JobListPanel(String id, ObjectId commitId, List<Job> jobs) {
+	public JobListPanel(String id, ObjectId commitId, @Nullable String refName, List<Job> jobs) {
 		super(id);
 		this.commitId = commitId;
+		this.refName = refName;
 		this.jobs = jobs;
 	}
 	
 	protected abstract Project getProject();
+	
+	@Nullable
+	protected abstract PullRequest getPullRequest();
 	
 	protected abstract void onRunJob(AjaxRequestTarget target);
 
@@ -83,7 +94,7 @@ public abstract class JobListPanel extends Panel {
 		add(jobsView);
 		for (Job job: accessibleJobsModel.getObject()) {
 			WebMarkupContainer jobItem = new WebMarkupContainer(jobsView.newChildId());
-			Status status = getProject().getCommitStatus(commitId).get(job.getName());
+			Status status = getProject().getCommitStatus(commitId, getPullRequest(), refName).get(job.getName());
 					
 			Link<Void> defLink = new JobDefLink("name", commitId, job.getName()) {
 
@@ -96,7 +107,7 @@ public abstract class JobListPanel extends Panel {
 			defLink.add(new Label("label", job.getName()));
 			jobItem.add(defLink);
 				
-			jobItem.add(new RunJobLink("run", commitId, job.getName()) {
+			jobItem.add(new RunJobLink("run", commitId, job.getName(), refName) {
 
 				@Override
 				public void onClick(AjaxRequestTarget target) {
@@ -108,11 +119,16 @@ public abstract class JobListPanel extends Panel {
 				protected Project getProject() {
 					return JobListPanel.this.getProject();
 				}
+
+				@Override
+				protected PullRequest getPullRequest() {
+					return JobListPanel.this.getPullRequest();
+				}
 				
 			});
 			
 			jobItem.add(new BookmarkablePageLink<Void>("showInList", ProjectBuildsPage.class, 
-					ProjectBuildsPage.paramsOf(getProject(), Job.getBuildQuery(commitId, job.getName()), 0)) {
+					ProjectBuildsPage.paramsOf(getProject(), Job.getBuildQuery(commitId, job.getName(), refName, getPullRequest()), 0)) {
 				
 				@Override
 				protected void onConfigure() {
@@ -127,7 +143,8 @@ public abstract class JobListPanel extends Panel {
 				@Override
 				protected List<Build> load() {
 					BuildManager buildManager = OneDev.getInstance(BuildManager.class);
-					List<Build> builds = new ArrayList<>(buildManager.query(getProject(), commitId, job.getName()));
+					List<Build> builds = new ArrayList<>(buildManager.query(getProject(), commitId, 
+							job.getName(), refName, Optional.ofNullable(getPullRequest()), new HashMap<>()));
 					builds.sort(Comparator.comparing(Build::getNumber));
 					return builds;
 				}

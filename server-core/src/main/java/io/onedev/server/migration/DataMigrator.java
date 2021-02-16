@@ -25,8 +25,8 @@ import com.google.common.base.Preconditions;
 
 import io.onedev.commons.launcher.bootstrap.Bootstrap;
 import io.onedev.commons.utils.FileUtils;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.StringUtils;
-import io.onedev.server.GeneralException;
 
 @Singleton
 @SuppressWarnings("unused")
@@ -1086,7 +1086,7 @@ public class DataMigrator {
 									Path target = projectsDir.toPath();
 								    File linkDir = new File(Bootstrap.installDir, "site/projects");
 								    if (linkDir.exists())
-								    	throw new GeneralException("Directory already exists: " + linkDir);
+								    	throw new ExplicitException("Directory already exists: " + linkDir);
 								    Files.createSymbolicLink(linkDir.toPath(), target);							
 								}
 							} catch (IOException e) {
@@ -2168,6 +2168,164 @@ public class DataMigrator {
 						if (valueElement != null)
 							valueElement.addElement("issueTemplates");
 					}
+				}
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+	
+	private void migrate44_abbreviate(Element element, int maxLen) {
+		if (element != null) {
+			String text = StringUtils.abbreviate(element.getText().trim(), maxLen);
+			element.setText(text);
+		}
+	}
+	
+	// Migrate to 4.0.5
+	private void migrate44(File dataDir, Stack<Integer> versions) {
+		Map<String, String> verifications = new HashMap<>();
+		for (File file: dataDir.listFiles()) {
+			if (file.getName().startsWith("PullRequestVerifications.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					verifications.put(element.elementTextTrim("build"), element.elementTextTrim("request"));
+				}
+			}
+		}
+		
+		for (File file: dataDir.listFiles()) {
+			if (file.getName().startsWith("Builds.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					element.addElement("triggerId").setText(UUID.randomUUID().toString());
+					String requestId = verifications.get(element.elementTextTrim("id"));
+					if (requestId != null)
+						element.addElement("request").setText(requestId);
+					Element updatedRefElement = element.element("updatedRef");
+					if (updatedRefElement != null)
+						updatedRefElement.setName("refName");
+					migrate44_abbreviate(element.element("errorMessage"), 12000);
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("Issues.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					migrate44_abbreviate(element.element("description"), 14000);
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("CodeComments.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					migrate44_abbreviate(element.element("content"), 14000);
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("CodeCommentReplys.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					migrate44_abbreviate(element.element("content"), 14000);
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("IssueComments.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					migrate44_abbreviate(element.element("content"), 15000);
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("Projects.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					migrate44_abbreviate(element.element("description"), 15000);
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("PullRequests.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					migrate44_abbreviate(element.element("description"), 12000);
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("PullRequestComments.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					migrate44_abbreviate(element.element("content"), 14000);
+				}
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+	
+	// Migrate to 4.0.6
+	private void migrate45(File dataDir, Stack<Integer> versions) {
+		for (File file: dataDir.listFiles()) {
+			if (file.getName().startsWith("Builds.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) 
+					element.element("triggerId").detach();
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+
+	// migrate to 4.0.7
+	private void migrate46(File dataDir, Stack<Integer> versions) {
+		for (File file: dataDir.listFiles()) {
+			if (file.getName().startsWith("Settings.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					if (element.elementTextTrim("key").equals("JOB_EXECUTORS")) {
+						Element valueElement = element.element("value");
+						for (Element executorElement: valueElement.elements()) {
+							if (executorElement.getName().contains("KubernetesExecutor")) {
+								Element serviceAccountElement = executorElement.element("serviceAccount");
+								if (serviceAccountElement != null)
+									serviceAccountElement.detach();
+							}
+						}
+					}
+				}
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+	
+	// migrate to 4.0.8
+	private void migrate47(File dataDir, Stack<Integer> versions) {
+		for (File file: dataDir.listFiles()) {
+			if (file.getName().startsWith("Builds.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					Element refNameElement = element.element("refName");
+					if (refNameElement == null)
+						element.addElement("refName").setText("unknown");
+				}
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+	
+	// migrate to 4.1.0
+	private void migrate48(File dataDir, Stack<Integer> versions) {
+		for (File file: dataDir.listFiles()) {
+			try {
+				String content = FileUtils.readFileToString(file, StandardCharsets.UTF_8);
+				content = StringUtils.replace(content, 
+						"\" is before \"", "\" is until \"");
+				content = StringUtils.replace(content, 
+						"\" is after \"", "\" is since \"");
+				FileUtils.writeStringToFile(file, content, StandardCharsets.UTF_8);
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+		}	
+	}
+	
+	// migrate to 4.2.0
+	private void migrate49(File dataDir, Stack<Integer> versions) {
+		for (File file: dataDir.listFiles()) {
+			if (file.getName().startsWith("Projects.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element: dom.getRootElement().elements()) {
+					Element buildSettingElement = element.element("buildSetting");
+					buildSettingElement.addElement("defaultFixedIssueFilters");
 				}
 				dom.writeToFile(file, false);
 			}

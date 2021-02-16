@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
@@ -109,6 +110,8 @@ import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.StorageManager;
 import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.ComponentContext;
+import io.onedev.server.util.StatusInfo;
+import io.onedev.server.util.diff.WhitespaceOption;
 import io.onedev.server.util.jackson.DefaultView;
 import io.onedev.server.util.match.Matcher;
 import io.onedev.server.util.match.PathMatcher;
@@ -191,7 +194,7 @@ public class Project extends AbstractEntity {
 	@Column(nullable=false, unique=true)
 	private String name;
 	
-	@Column(length=16384)
+	@Column(length=15000)
 	private String description;
 	
     @OneToMany(mappedBy="project")
@@ -295,7 +298,7 @@ public class Project extends AbstractEntity {
     
     private transient Map<ObjectId, Optional<BuildSpec>> buildSpecCache;
     
-    private transient Map<ObjectId, Map<String, Status>> commitStatusCache;
+    private transient Map<ObjectId, Map<String, Collection<StatusInfo>>> commitStatusCache;
     
     private transient Map<ObjectId, Optional<RevCommit>> commitCache;
     
@@ -659,23 +662,35 @@ public class Project extends AbstractEntity {
 		objectIdCache.put(revision, Optional.fromNullable(objectId));
 	}
 
-	public Map<String, Status> getCommitStatus(ObjectId commitId) {
-		Map<String, Status> commitStatus = getCommitStatusCache().get(commitId);
-		if (commitStatus == null) {
+	public Map<String, Status> getCommitStatus(ObjectId commitId, 
+			@Nullable PullRequest request, @Nullable String refName) {
+		Map<String, Collection<StatusInfo>> commitStatusInfos = getCommitStatusCache().get(commitId);
+		if (commitStatusInfos == null) {
 			BuildManager buildManager = OneDev.getInstance(BuildManager.class);
-			commitStatus = buildManager.queryStatus(this, Sets.newHashSet(commitId)).get(commitId);
-			getCommitStatusCache().put(commitId, Preconditions.checkNotNull(commitStatus));
+			commitStatusInfos = buildManager.queryStatus(this, Sets.newHashSet(commitId)).get(commitId);
+			getCommitStatusCache().put(commitId, Preconditions.checkNotNull(commitStatusInfos));
+		}
+		Map<String, Status> commitStatus = new HashMap<>();
+		for (Map.Entry<String, Collection<StatusInfo>> entry: commitStatusInfos.entrySet()) {
+			Collection<Status> statuses = new ArrayList<>();
+			for (StatusInfo statusInfo: entry.getValue()) {
+				if ((refName == null || refName.equals(statusInfo.getRefName())) 
+						&& Objects.equals(PullRequest.idOf(request), statusInfo.getRequestId())) {
+					statuses.add(statusInfo.getStatus());
+				}
+			}
+			commitStatus.put(entry.getKey(), Status.getOverallStatus(statuses));
 		}
 		return commitStatus;
 	}
 	
-	private Map<ObjectId, Map<String, Status>> getCommitStatusCache() {
+	private Map<ObjectId, Map<String, Collection<StatusInfo>>> getCommitStatusCache() {
 		if (commitStatusCache == null)
 			commitStatusCache = new HashMap<>();
 		return commitStatusCache;
 	}
 	
-	public void cacheCommitStatus(Map<ObjectId, Map<String, Status>> commitStatuses) {
+	public void cacheCommitStatus(Map<ObjectId, Map<String, Collection<StatusInfo>>> commitStatuses) {
 		getCommitStatusCache().putAll(commitStatuses);
 	}
 	
@@ -833,6 +848,12 @@ public class Project extends AbstractEntity {
 			refCache.put(revision, optional);
 		}
 		return optional.orNull();
+	}
+	
+	@Nullable
+	public String getRefName(String revision) {
+		Ref ref = getRef(revision);
+		return ref != null? ref.getName(): null;
 	}
 	
 	@Nullable
@@ -1049,8 +1070,8 @@ public class Project extends AbstractEntity {
 			namedCodeCommentQueries = new ArrayList<>(); 
 			namedCodeCommentQueries.add(new NamedCodeCommentQuery("All", null));
 			namedCodeCommentQueries.add(new NamedCodeCommentQuery("Created by me", "created by me"));
-			namedCodeCommentQueries.add(new NamedCodeCommentQuery("Created recently", "\"Create Date\" is after \"last week\""));
-			namedCodeCommentQueries.add(new NamedCodeCommentQuery("Updated recently", "\"Update Date\" is after \"last week\""));
+			namedCodeCommentQueries.add(new NamedCodeCommentQuery("Created recently", "\"Create Date\" is since \"last week\""));
+			namedCodeCommentQueries.add(new NamedCodeCommentQuery("Updated recently", "\"Update Date\" is since \"last week\""));
 		}
 		return namedCodeCommentQueries;
 	}
@@ -1414,7 +1435,22 @@ public class Project extends AbstractEntity {
 	
 	public boolean isBuildRequiredForPush(User user, String branch, ObjectId oldObjectId, ObjectId newObjectId, 
 			Map<String, String> gitEnvs) {
-		return getBranchProtection(branch, user).isBuildRequiredForPush(this, branch, oldObjectId, newObjectId, gitEnvs);
+		return getBranchProtection(branch, user).isBuildRequiredForPush(this, oldObjectId, newObjectId, gitEnvs);
+	}
+	
+	@Nullable
+	public List<String> readLines(BlobIdent blobIdent, WhitespaceOption whitespaceOption, boolean mustExist) {
+		Blob blob = getBlob(blobIdent, mustExist);
+		if (blob != null) {
+			Blob.Text text = blob.getText();
+			if (text != null) {
+				List<String> normalizedLines = new ArrayList<>();
+				for (String line: text.getLines()) 
+					normalizedLines.add(whitespaceOption.process(line));
+				return normalizedLines;
+			}
+		}
+		return null;
 	}
 	
 	@Nullable

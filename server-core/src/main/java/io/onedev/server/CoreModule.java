@@ -6,7 +6,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -83,14 +85,19 @@ import io.onedev.commons.launcher.loader.AbstractPlugin;
 import io.onedev.commons.launcher.loader.AbstractPluginModule;
 import io.onedev.commons.launcher.loader.ImplementationProvider;
 import io.onedev.commons.utils.ExceptionUtils;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.buildspec.job.DefaultJobManager;
 import io.onedev.server.buildspec.job.JobManager;
 import io.onedev.server.buildspec.job.log.DefaultLogManager;
 import io.onedev.server.buildspec.job.log.LogManager;
 import io.onedev.server.buildspec.job.log.instruction.LogInstruction;
+import io.onedev.server.code.CodeProblem;
+import io.onedev.server.code.CodeProblemContribution;
+import io.onedev.server.code.LineCoverageContribution;
 import io.onedev.server.entitymanager.BuildDependenceManager;
 import io.onedev.server.entitymanager.BuildManager;
+import io.onedev.server.entitymanager.BuildMetricManager;
 import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.entitymanager.BuildQuerySettingManager;
 import io.onedev.server.entitymanager.CodeCommentManager;
@@ -116,7 +123,6 @@ import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.PullRequestQuerySettingManager;
 import io.onedev.server.entitymanager.PullRequestReviewManager;
 import io.onedev.server.entitymanager.PullRequestUpdateManager;
-import io.onedev.server.entitymanager.PullRequestVerificationManager;
 import io.onedev.server.entitymanager.PullRequestWatchManager;
 import io.onedev.server.entitymanager.RoleManager;
 import io.onedev.server.entitymanager.SettingManager;
@@ -126,6 +132,7 @@ import io.onedev.server.entitymanager.UserAuthorizationManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildDependenceManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildManager;
+import io.onedev.server.entitymanager.impl.DefaultBuildMetricManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildParamManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildQuerySettingManager;
 import io.onedev.server.entitymanager.impl.DefaultCodeCommentManager;
@@ -151,7 +158,6 @@ import io.onedev.server.entitymanager.impl.DefaultPullRequestManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestQuerySettingManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestReviewManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestUpdateManager;
-import io.onedev.server.entitymanager.impl.DefaultPullRequestVerificationManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestWatchManager;
 import io.onedev.server.entitymanager.impl.DefaultRoleManager;
 import io.onedev.server.entitymanager.impl.DefaultSettingManager;
@@ -178,6 +184,7 @@ import io.onedev.server.maintenance.DefaultDataManager;
 import io.onedev.server.maintenance.ResetAdminPassword;
 import io.onedev.server.maintenance.RestoreDatabase;
 import io.onedev.server.maintenance.Upgrade;
+import io.onedev.server.model.Build;
 import io.onedev.server.model.support.administration.GroovyScript;
 import io.onedev.server.model.support.administration.authenticator.Authenticator;
 import io.onedev.server.model.support.administration.jobexecutor.AutoDiscoveredJobExecutor;
@@ -280,8 +287,8 @@ import io.onedev.server.web.editable.EditSupport;
 import io.onedev.server.web.editable.EditSupportLocator;
 import io.onedev.server.web.editable.EditSupportRegistry;
 import io.onedev.server.web.mapper.DynamicPathPageMapper;
-import io.onedev.server.web.page.layout.DefaultUICustomization;
-import io.onedev.server.web.page.layout.UICustomization;
+import io.onedev.server.web.page.layout.DefaultMainMenuCustomization;
+import io.onedev.server.web.page.layout.MainMenuCustomization;
 import io.onedev.server.web.page.project.blob.render.BlobRendererContribution;
 import io.onedev.server.web.page.test.TestPage;
 import io.onedev.server.web.websocket.BuildEventBroadcaster;
@@ -351,7 +358,6 @@ public class CoreModule extends AbstractPluginModule {
 		bind(BuildDependenceManager.class).to(DefaultBuildDependenceManager.class);
 		bind(JobManager.class).to(DefaultJobManager.class);
 		bind(LogManager.class).to(DefaultLogManager.class);
-		bind(PullRequestVerificationManager.class).to(DefaultPullRequestVerificationManager.class);
 		bind(MailManager.class).to(DefaultMailManager.class);
 		bind(IssueManager.class).to(DefaultIssueManager.class);
 		bind(IssueFieldManager.class).to(DefaultIssueFieldManager.class);
@@ -393,6 +399,7 @@ public class CoreModule extends AbstractPluginModule {
 		bind(BuildQuerySettingManager.class).to(DefaultBuildQuerySettingManager.class);
 		bind(PullRequestAssignmentManager.class).to(DefaultPullRequestAssignmentManager.class);
 		bind(SshKeyManager.class).to(DefaultSshKeyManager.class);
+		bind(BuildMetricManager.class).to(DefaultBuildMetricManager.class);
 		
 		bind(WebHookManager.class);
 		
@@ -485,6 +492,24 @@ public class CoreModule extends AbstractPluginModule {
 			}
 
 	    });
+	    
+		contribute(CodeProblemContribution.class, new CodeProblemContribution() {
+			
+			@Override
+			public List<CodeProblem> getCodeProblems(Build build, String blobPath, String reportName) {
+				return Lists.newArrayList();
+			}
+			
+		});
+	    
+		contribute(LineCoverageContribution.class, new LineCoverageContribution() {
+			
+			@Override
+			public Map<Integer, Integer> getLineCoverages(Build build, String blobPath, String reportName) {
+				return new HashMap<>();
+			}
+			
+		});
 	}
 	
 	private void configureSsh() {
@@ -599,7 +624,7 @@ public class CoreModule extends AbstractPluginModule {
 			public Collection<Class<? extends Exception>> getExpectedExceptionClasses() {
 				return Sets.newHashSet(ConstraintViolationException.class, EntityNotFoundException.class, 
 						ObjectNotFoundException.class, StaleStateException.class, UnauthorizedException.class, 
-						GeneralException.class, PageExpiredException.class, StalePageException.class);
+						ExplicitException.class, PageExpiredException.class, StalePageException.class);
 			}
 			
 		});
@@ -612,7 +637,7 @@ public class CoreModule extends AbstractPluginModule {
 		
 		bind(TaskButton.TaskFutureManager.class);
 		
-		bind(UICustomization.class).toInstance(new DefaultUICustomization());
+		bind(MainMenuCustomization.class).toInstance(new DefaultMainMenuCustomization());
 	}
 	
 	private void configureBuild() {

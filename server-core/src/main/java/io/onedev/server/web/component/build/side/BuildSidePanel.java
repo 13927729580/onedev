@@ -4,9 +4,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-import io.onedev.server.web.component.entity.reference.ReferencePanel;
 import org.apache.wicket.Component;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
 import org.apache.wicket.markup.ComponentTag;
@@ -19,6 +17,7 @@ import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.markup.html.list.ListItem;
 import org.apache.wicket.markup.html.list.ListView;
 import org.apache.wicket.markup.html.panel.Panel;
+import org.apache.wicket.model.AbstractReadOnlyModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
@@ -36,9 +35,10 @@ import io.onedev.server.util.Referenceable;
 import io.onedev.server.util.criteria.Criteria;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.build.ParamValuesLabel;
+import io.onedev.server.web.component.entity.reference.ReferencePanel;
 import io.onedev.server.web.component.job.JobDefLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
-import io.onedev.server.web.component.pullrequest.RequestStatusLabel;
+import io.onedev.server.web.component.pullrequest.RequestStatusBadge;
 import io.onedev.server.web.component.user.ident.Mode;
 import io.onedev.server.web.component.user.ident.UserIdentPanel;
 import io.onedev.server.web.page.builds.BuildListPage;
@@ -73,7 +73,14 @@ public abstract class BuildSidePanel extends Panel {
 		};
 		
 		general.setOutputMarkupId(true);
+		
 		add(general);
+
+		String branch = getBuild().getBranch();
+		general.add(new Label("branch", branch).setVisible(branch != null));
+		
+		String tag = getBuild().getTag();
+		general.add(new Label("tag", tag).setVisible(tag != null));
 		
 		CommitDetailPage.State commitState = new CommitDetailPage.State();
 		commitState.revision = getBuild().getCommitHash();
@@ -246,36 +253,40 @@ public abstract class BuildSidePanel extends Panel {
 		
 		dependencesContainer.setVisible(dependentsLink.isVisible() || dependenciesLink.isVisible());
 		
-		add(new ListView<PullRequest>("pullRequests", new LoadableDetachableModel<List<PullRequest>>() {
+		add(new WebMarkupContainer("pullRequest") {
 
 			@Override
-			protected List<PullRequest> load() {
-				return getBuild().getVerifications()
-						.stream()
-						.map(it->it.getRequest())
-						.collect(Collectors.toList());
-			}
-			
-		}) {
+			protected void onInitialize() {
+				super.onInitialize();
 
-			@Override
-			protected void populateItem(ListItem<PullRequest> item) {
-				PullRequest request = item.getModelObject();
+				PullRequest request = getBuild().getRequest();
 
-				Link<Void> link = new ViewStateAwarePageLink<Void>("title", 
-						PullRequestActivitiesPage.class, 
-						PullRequestActivitiesPage.paramsOf(request));
-				link.add(new Label("label", "#" + request.getNumber() + " " + request.getTitle()));
-				item.add(link);
-				item.add(new RequestStatusLabel("status", item.getModel()));
+				if (request != null) {
+					Link<Void> link = new ViewStateAwarePageLink<Void>("title", 
+							PullRequestActivitiesPage.class, 
+							PullRequestActivitiesPage.paramsOf(request));
+					link.add(new Label("label", "#" + request.getNumber() + " " + request.getTitle()));
+					add(link);
+					add(new RequestStatusBadge("status", new AbstractReadOnlyModel<PullRequest>() {
+	
+						@Override
+						public PullRequest getObject() {
+							return getBuild().getRequest();
+						}
+						
+					}));
+				} else {
+					add(new WebMarkupContainer("title").add(new WebMarkupContainer("label")));
+					add(new WebMarkupContainer("status"));
+				}
 			}
 			
 			@Override
 			protected void onConfigure() {
-				setVisible(!getModelObject().isEmpty() && SecurityUtils.canReadCode(getProject()));
+				setVisible(getBuild().getRequest() != null && SecurityUtils.canReadCode(getProject()));
 			}
 			
-		});		
+		});
 
 		add(new ReferencePanel("reference") {
 

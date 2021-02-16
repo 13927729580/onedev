@@ -14,7 +14,6 @@ import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobReport;
 import io.onedev.server.model.Build;
 import io.onedev.server.util.SimpleLogger;
-import io.onedev.server.util.validation.annotation.PathSegment;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.Interpolative;
 
@@ -27,25 +26,9 @@ public class JobMarkdownReport extends JobReport {
 	
 	public static final String START_PAGE = "$onedev-markdownreport-startpage$";
 
-	private String reportName;
-	
 	private String startPage;
 
-	@Editable(order=1000, description="Specify report name. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
-	@Interpolative(variableSuggester="suggestVariables")
-	@PathSegment
-	@NotEmpty
-	public String getReportName() {
-		return reportName;
-	}
-
-	public void setReportName(String reportName) {
-		this.reportName = reportName;
-	}
-	
-	@Editable(order=1100, description="Specify start page of the report relative to <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, for instance: <tt>manual/index.md</tt>. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+	@Editable(order=1100, description="Specify start page of the report relative to <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, for instance: <tt>manual/index.md</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getStartPage() {
@@ -64,7 +47,6 @@ public class JobMarkdownReport extends JobReport {
 	@Override
 	public void process(Build build, File workspace, SimpleLogger logger) {
 		File reportDir = new File(build.getReportDir(DIR), getReportName());
-		FileUtils.createDir(reportDir);
 
 		LockUtils.write(build.getReportLockKey(DIR), new Callable<Void>() {
 
@@ -72,6 +54,7 @@ public class JobMarkdownReport extends JobReport {
 			public Void call() throws Exception {
 				File startPage = new File(workspace, getStartPage()); 
 				if (startPage.exists()) {
+					FileUtils.createDir(reportDir);
 					File startPageFile = new File(reportDir, START_PAGE);
 					FileUtils.writeFile(startPageFile, getStartPage());
 					

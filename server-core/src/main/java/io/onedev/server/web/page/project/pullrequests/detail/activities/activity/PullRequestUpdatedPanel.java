@@ -47,7 +47,8 @@ class PullRequestUpdatedPanel extends GenericPanel<PullRequestUpdate> {
 	protected void onInitialize() {
 		super.onInitialize();
 		
-		add(new Label("age", DateUtils.formatAge(getUpdate().getDate())));
+		add(new Label("age", DateUtils.formatAge(getUpdate().getDate()))
+				.add(new AttributeAppender("title", DateUtils.formatDateTime(getUpdate().getDate()))));
 		String tooManyMessage = "Too many commits, displaying recent " + WebConstants.MAX_DISPLAY_COMMITS;
 		add(new Label("tooManyCommits", tooManyMessage) {
 
@@ -90,7 +91,7 @@ class PullRequestUpdatedPanel extends GenericPanel<PullRequestUpdate> {
 					
 				});
 
-				CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy()) {
+				CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy(), null) {
 					
 					@Override
 					protected String getCssClasses() {
@@ -100,6 +101,11 @@ class PullRequestUpdatedPanel extends GenericPanel<PullRequestUpdate> {
 					@Override
 					protected Project getProject() {
 						return getUpdate().getRequest().getTarget().getProject();
+					}
+
+					@Override
+					protected PullRequest getPullRequest() {
+						return null;
 					}
 					
 				};

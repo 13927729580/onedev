@@ -25,6 +25,7 @@ import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Build.Status;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.web.component.build.status.BuildStatusIcon;
 import io.onedev.server.web.component.floating.FloatingPanel;
 import io.onedev.server.web.component.job.joblist.JobListPanel;
@@ -36,6 +37,8 @@ public abstract class CommitStatusPanel extends Panel {
 	private static final Logger logger = LoggerFactory.getLogger(CommitStatusPanel.class);
 	
 	private final ObjectId commitId;
+	
+	private final String refName;
 	
 	private final IModel<List<Job>> jobsModel = new LoadableDetachableModel<List<Job>>() {
 
@@ -59,17 +62,21 @@ public abstract class CommitStatusPanel extends Panel {
 
 		@Override
 		protected Status load() {
-			return Status.getOverallStatus(getProject().getCommitStatus(commitId).values());
+			return Status.getOverallStatus(getProject().getCommitStatus(commitId, getPullRequest(), refName).values());
 		}
 		
 	};
 	
-	public CommitStatusPanel(String id, ObjectId commitId) {
+	public CommitStatusPanel(String id, ObjectId commitId, @Nullable String refName) {
 		super(id);
 		this.commitId = commitId;
+		this.refName = refName;
 	}
 	
 	protected abstract Project getProject();
+	
+	@Nullable
+	protected abstract PullRequest getPullRequest();
 
 	@Override
 	protected void onInitialize() {
@@ -79,7 +86,7 @@ public abstract class CommitStatusPanel extends Panel {
 
 			@Override
 			protected Component newContent(String id, FloatingPanel dropdown) {
-				return new JobListPanel(id, commitId, jobsModel.getObject()) {
+				return new JobListPanel(id, commitId, refName, jobsModel.getObject()) {
 
 					@Override
 					protected Project getProject() {
@@ -89,6 +96,11 @@ public abstract class CommitStatusPanel extends Panel {
 					@Override
 					protected void onRunJob(AjaxRequestTarget target) {
 						dropdown.close();
+					}
+
+					@Override
+					protected PullRequest getPullRequest() {
+						return CommitStatusPanel.this.getPullRequest();
 					}
 					
 				};

@@ -18,7 +18,6 @@ import org.hibernate.criterion.Restrictions;
 import io.onedev.server.entitymanager.PullRequestChangeManager;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.PullRequestReviewManager;
-import io.onedev.server.entitymanager.PullRequestVerificationManager;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.PullRequestChange;
 import io.onedev.server.model.PullRequestReview;
@@ -30,31 +29,27 @@ import io.onedev.server.model.support.pullrequest.changedata.PullRequestReviewer
 import io.onedev.server.model.support.pullrequest.changedata.PullRequestReviewerRemoveData;
 import io.onedev.server.persistence.annotation.Sessional;
 import io.onedev.server.persistence.annotation.Transactional;
-import io.onedev.server.persistence.dao.AbstractEntityManager;
+import io.onedev.server.persistence.dao.BaseEntityManager;
 import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.persistence.dao.EntityCriteria;
 import io.onedev.server.security.SecurityUtils;
 
 @Singleton
-public class DefaultPullRequestReviewManager extends AbstractEntityManager<PullRequestReview> 
+public class DefaultPullRequestReviewManager extends BaseEntityManager<PullRequestReview> 
 		implements PullRequestReviewManager {
 
 	private final PullRequestManager pullRequestManager;
 	
 	private final PullRequestChangeManager pullRequestChangeManager;
 	
-	private final PullRequestVerificationManager pullRequestVerificationManager;
-	
 	@Inject
 	public DefaultPullRequestReviewManager(Dao dao, 
 			PullRequestManager pullRequestManager, 
-			PullRequestChangeManager pullRequestChangeManager, 
-			PullRequestVerificationManager pullRequestVerificationManager) {
+			PullRequestChangeManager pullRequestChangeManager) {
 		super(dao);
 		
 		this.pullRequestManager = pullRequestManager;
 		this.pullRequestChangeManager = pullRequestChangeManager;
-		this.pullRequestVerificationManager = pullRequestVerificationManager;
 	}
 
 	@Transactional
@@ -90,13 +85,12 @@ public class DefaultPullRequestReviewManager extends AbstractEntityManager<PullR
 		request.getReviews().remove(review);
 		request.setReviews(request.getReviews());
 		
-		pullRequestManager.checkQuality(request, unpreferableReviewers);
+		pullRequestManager.checkReviews(request, unpreferableReviewers);
 		
 		if (request.isNew()) {
 			return request.getReview(reviewer) == null;
 		} else {
 			saveReviews(request);
-			pullRequestVerificationManager.saveVerifications(request);
 			if (request.getReview(reviewer) == null) {
 				PullRequestChange change = new PullRequestChange();
 				change.setDate(new Date());

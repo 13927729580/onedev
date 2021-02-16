@@ -1,6 +1,8 @@
 package io.onedev.server.web.page.project;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,9 +21,11 @@ import org.eclipse.jgit.lib.ObjectId;
 
 import com.google.common.collect.Lists;
 
-import io.onedev.server.GeneralException;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.server.OneDev;
+import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.ProjectManager;
+import io.onedev.server.model.Build;
 import io.onedev.server.model.Project;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.avatar.AvatarManager;
@@ -57,6 +61,7 @@ import io.onedev.server.web.page.project.setting.avatar.AvatarEditPage;
 import io.onedev.server.web.page.project.setting.branchprotection.BranchProtectionsPage;
 import io.onedev.server.web.page.project.setting.build.ActionAuthorizationsPage;
 import io.onedev.server.web.page.project.setting.build.BuildPreservationsPage;
+import io.onedev.server.web.page.project.setting.build.DefaultFixedIssueFiltersPage;
 import io.onedev.server.web.page.project.setting.build.JobSecretsPage;
 import io.onedev.server.web.page.project.setting.general.GeneralProjectSettingPage;
 import io.onedev.server.web.page.project.setting.tagprotection.TagProtectionsPage;
@@ -72,6 +77,8 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 	protected static final String PARAM_PROJECT = "project";
 	
 	protected final IModel<Project> projectModel;
+	
+	private transient Map<ObjectId, Collection<Build>> buildsCache;
 	
 	public static PageParameters paramsOf(Project project) {
 		PageParameters params = new PageParameters();
@@ -89,7 +96,7 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 		Project project = OneDev.getInstance(ProjectManager.class).find(projectName);
 		
 		if (project == null) 
-			throw new GeneralException("Unable to find project " + projectName);
+			throw new ExplicitException("Unable to find project " + projectName);
 		
 		Long projectId = project.getId();
 		
@@ -175,14 +182,26 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 					ProjectCodeCommentsPage.class, ProjectCodeCommentsPage.paramsOf(getProject(), 0)));
 			menuItems.add(new SidebarMenuItem.Page("diff", "Code Compare", 
 					RevisionComparePage.class, RevisionComparePage.paramsOf(getProject())));
-			List<SidebarMenuItem> statsMenuItems = new ArrayList<>();
+		}
+
+		List<SidebarMenuItem> statsMenuItems = new ArrayList<>();
+		
+		if (SecurityUtils.canReadCode(getProject())) {
 			statsMenuItems.add(new SidebarMenuItem.Page(null, "Contributions", 
 					ProjectContribsPage.class, ProjectContribsPage.paramsOf(getProject())));
 			statsMenuItems.add(new SidebarMenuItem.Page(null, "Source Lines", 
 					SourceLinesPage.class, SourceLinesPage.paramsOf(getProject())));
-			
-			menuItems.add(new SidebarMenuItem.SubMenu("statistics", "Statistics", statsMenuItems));
 		}
+		
+		List<StatisticsMenuContribution> contributions = new ArrayList<>(OneDev.getExtensions(StatisticsMenuContribution.class));
+		contributions.sort(Comparator.comparing(StatisticsMenuContribution::getOrder));
+		
+		for (StatisticsMenuContribution contribution: contributions)
+			statsMenuItems.addAll(contribution.getMenuItems(getProject()));
+		
+		if (!statsMenuItems.isEmpty())
+			menuItems.add(new SidebarMenuItem.SubMenu("statistics", "Statistics", statsMenuItems));
+			
 		
 		if (SecurityUtils.canManage(getProject())) {
 			List<SidebarMenuItem> settingMenuItems = new ArrayList<>();
@@ -205,6 +224,8 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 					ActionAuthorizationsPage.class, ActionAuthorizationsPage.paramsOf(getProject())));
 			buildSettingMenuItems.add(new SidebarMenuItem.Page(null, "Build Preserve Rules", 
 					BuildPreservationsPage.class, BuildPreservationsPage.paramsOf(getProject())));
+			buildSettingMenuItems.add(new SidebarMenuItem.Page(null, "Default Fixed Issue Filters", 
+					DefaultFixedIssueFiltersPage.class, DefaultFixedIssueFiltersPage.paramsOf(getProject())));
 			
 			settingMenuItems.add(new SidebarMenuItem.SubMenu(null, "Build Setting", buildSettingMenuItems));
 			settingMenuItems.add(new SidebarMenuItem.Page(null, "Web Hooks", 
@@ -255,4 +276,16 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 
 	protected abstract Component newProjectTitle(String componentId);
 	
+	protected Collection<Build> getBuilds(ObjectId commitId) {
+		if (buildsCache == null)
+			buildsCache = new HashMap<>();
+		Collection<Build> builds = buildsCache.get(commitId);
+		if (builds == null) {
+			BuildManager buildManager = OneDev.getInstance(BuildManager.class);
+			builds = buildManager.query(getProject(), commitId, null, null, null, new HashMap<>());
+			buildsCache.put(commitId, builds);
+		}
+		return builds;
+	}
+
 }

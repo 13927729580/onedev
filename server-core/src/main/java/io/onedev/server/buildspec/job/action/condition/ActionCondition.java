@@ -13,8 +13,8 @@ import org.antlr.v4.runtime.Recognizer;
 
 import io.onedev.commons.codeassist.AntlrUtils;
 import io.onedev.commons.codeassist.FenceAware;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.StringUtils;
-import io.onedev.server.GeneralException;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.action.condition.ActionConditionParser.AndCriteriaContext;
 import io.onedev.server.buildspec.job.action.condition.ActionConditionParser.ConditionContext;
@@ -101,12 +101,8 @@ public class ActionCondition extends Criteria<Build> {
 						return new PreviousIsCancelledCriteria();
 					case ActionConditionLexer.PreviousIsTimedOut:
 						return new PreviousIsTimedOutCriteria();
-					case ActionConditionLexer.AssociatedWithPullRequests:
-						return new AssociatedWithPullRequestsCriteria();
-					case ActionConditionLexer.RequiredByPullRequests:
-						return new RequiredByPullRequestsCriteria();
 					default:
-						throw new GeneralException("Unexpected operator: " + ctx.operator.getText());
+						throw new ExplicitException("Unexpected operator: " + ctx.operator.getText());
 					}
 				}
 				
@@ -115,7 +111,10 @@ public class ActionCondition extends Criteria<Build> {
 					String fieldName = getValue(ctx.Quoted().getText());
 					int operator = ctx.operator.getType();
 					checkField(job, fieldName, operator);
-					return new ParamIsEmptyCriteria(fieldName);
+					if (fieldName.equals(Build.NAME_PULL_REQUEST))
+						return new PullRequestIsEmptyCriteria();
+					else
+						return new ParamIsEmptyCriteria(fieldName);
 				}
 				
 				@Override
@@ -171,16 +170,19 @@ public class ActionCondition extends Criteria<Build> {
 		if (fieldName.equals(Build.NAME_ERROR_MESSAGE) || fieldName.equals(Build.NAME_LOG)) {
 			if (operator != ActionConditionLexer.Contains)
 				throw newOperatorException(fieldName, operator);
+		} else if (fieldName.equals(Build.NAME_PULL_REQUEST)) {
+			if (operator != ActionConditionLexer.IsEmpty)
+				throw newOperatorException(fieldName, operator);
 		} else if (job.getParamSpecMap().containsKey(fieldName)) {
 			if (operator != ActionConditionLexer.IsEmpty && operator != ActionConditionLexer.Is)
 				throw newOperatorException(fieldName, operator);
 		} else {
-			throw new GeneralException("Param not found: " + fieldName);
+			throw new ExplicitException("Param not found: " + fieldName);
 		}
 	}
 	
-	private static GeneralException newOperatorException(String fieldName, int operator) {
-		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" 
+	private static ExplicitException newOperatorException(String fieldName, int operator) {
+		return new ExplicitException("Field '" + fieldName + "' is not applicable for operator '" 
 				+ AntlrUtils.getLexerRuleName(ActionConditionLexer.ruleNames, operator) + "'");
 	}
 

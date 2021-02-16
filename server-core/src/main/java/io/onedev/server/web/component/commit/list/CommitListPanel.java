@@ -52,7 +52,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 
-import io.onedev.server.GeneralException;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.git.BlobIdent;
@@ -60,6 +60,7 @@ import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
 import io.onedev.server.git.command.RevListCommand;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.search.commit.CommitCriteria;
 import io.onedev.server.search.commit.CommitQuery;
 import io.onedev.server.search.commit.MessageCriteria;
@@ -104,7 +105,7 @@ public abstract class CommitListPanel extends Panel {
 			String queryString = queryStringModel.getObject();
 			try {
 				return CommitQuery.merge(getBaseQuery(), CommitQuery.parse(getProject(), queryString));
-			} catch (GeneralException e) {
+			} catch (ExplicitException e) {
 				error(e.getMessage());
 				return null;
 			} catch (Exception e) {
@@ -149,7 +150,7 @@ public abstract class CommitListPanel extends Panel {
 					command.ignoreCase(true);
 					
 					if (page > MAX_PAGES)
-						throw new GeneralException("Page should be no more than " + MAX_PAGES);
+						throw new ExplicitException("Page should be no more than " + MAX_PAGES);
 					
 					command.count(page * COMMITS_PER_PAGE);
 					
@@ -637,7 +638,7 @@ public abstract class CommitListPanel extends Panel {
 			item.add(new CopyToClipboardLink("copyHash", Model.of(commit.name())));
 			
 			getCommitIdsToQueryStatus().add(commit.copy());
-			CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy()) {
+			CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy(), null) {
 
 				@Override
 				protected String getCssClasses() {
@@ -647,6 +648,11 @@ public abstract class CommitListPanel extends Panel {
 				@Override
 				protected Project getProject() {
 					return CommitListPanel.this.getProject();
+				}
+
+				@Override
+				protected PullRequest getPullRequest() {
+					return null;
 				}
 				
 			};

@@ -3,9 +3,11 @@ package io.onedev.server.model;
 import static io.onedev.server.model.Build.PROP_CANCELLER_NAME;
 import static io.onedev.server.model.Build.PROP_COMMIT;
 import static io.onedev.server.model.Build.PROP_FINISH_DATE;
+import static io.onedev.server.model.Build.PROP_FINISH_DAY;
 import static io.onedev.server.model.Build.PROP_JOB;
 import static io.onedev.server.model.Build.PROP_NUMBER;
 import static io.onedev.server.model.Build.PROP_PENDING_DATE;
+import static io.onedev.server.model.Build.PROP_REF_NAME;
 import static io.onedev.server.model.Build.PROP_RUNNING_DATE;
 import static io.onedev.server.model.Build.PROP_STATUS;
 import static io.onedev.server.model.Build.PROP_SUBMITTER_NAME;
@@ -50,19 +52,17 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
-import org.hibernate.annotations.Cache;
-import org.hibernate.annotations.CacheConcurrencyStrategy;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.LockUtils;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
-import io.onedev.server.GeneralException;
 import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.VariableInterpolator;
@@ -73,6 +73,7 @@ import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
 import io.onedev.server.infomanager.CommitInfoManager;
+import io.onedev.server.model.support.BuildMetric;
 import io.onedev.server.model.support.build.JobSecret;
 import io.onedev.server.model.support.inputspec.SecretInput;
 import io.onedev.server.search.entity.EntityCriteria;
@@ -80,6 +81,7 @@ import io.onedev.server.storage.StorageManager;
 import io.onedev.server.util.BeanUtils;
 import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.ComponentContext;
+import io.onedev.server.util.Day;
 import io.onedev.server.util.Input;
 import io.onedev.server.util.IssueUtils;
 import io.onedev.server.util.MatrixRunner;
@@ -100,14 +102,16 @@ import io.onedev.server.web.util.WicketUtils;
 @Entity
 @Table(
 		indexes={@Index(columnList="o_project_id"), @Index(columnList="o_submitter_id"), @Index(columnList="o_canceller_id"),
-				@Index(columnList=PROP_SUBMITTER_NAME), @Index(columnList=PROP_CANCELLER_NAME), @Index(columnList=PROP_COMMIT), 
-				@Index(columnList=PROP_NUMBER), @Index(columnList=PROP_JOB), @Index(columnList=PROP_STATUS), 
-				@Index(columnList=PROP_SUBMIT_DATE), @Index(columnList=PROP_PENDING_DATE), @Index(columnList=PROP_RUNNING_DATE), 
-				@Index(columnList=PROP_FINISH_DATE), @Index(columnList=PROP_VERSION), @Index(columnList="o_numberScope_id"),
-				@Index(columnList="o_project_id, " + PROP_COMMIT)},
+				@Index(columnList="o_request_id"), @Index(columnList=PROP_SUBMITTER_NAME), 
+				@Index(columnList=PROP_CANCELLER_NAME), @Index(columnList=PROP_COMMIT), 
+				@Index(columnList=PROP_NUMBER), @Index(columnList=PROP_JOB), 
+				@Index(columnList=PROP_STATUS), @Index(columnList=PROP_REF_NAME),  
+				@Index(columnList=PROP_SUBMIT_DATE), @Index(columnList=PROP_PENDING_DATE), 
+				@Index(columnList=PROP_RUNNING_DATE), @Index(columnList=PROP_FINISH_DATE), 
+				@Index(columnList=PROP_FINISH_DAY), @Index(columnList=PROP_VERSION), 
+				@Index(columnList="o_numberScope_id"), @Index(columnList="o_project_id, " + PROP_COMMIT)},
 		uniqueConstraints={@UniqueConstraint(columnNames={"o_numberScope_id", PROP_NUMBER})}
 )
-@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 public class Build extends AbstractEntity implements Referenceable {
 
 	private static final long serialVersionUID = 1L;
@@ -166,7 +170,15 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	public static final String PROP_FINISH_DATE = "finishDate";
 	
+	public static final String PROP_FINISH_DAY = "finishDay";
+	
 	public static final String NAME_COMMIT = "Commit";
+	
+	public static final String NAME_BRANCH = "Branch";
+	
+	public static final String NAME_TAG = "Tag";
+	
+	public static final String PROP_REF_NAME = "refName";
 	
 	public static final String PROP_COMMIT = "commitHash";
 	
@@ -180,22 +192,29 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	public static final String PROP_DEPENDENTS = "dependents";
 	
-	public static final String PROP_VERIFICATIONS = "verifications";
+	public static final String NAME_PULL_REQUEST = "Pull Request";
+	
+	public static final String PROP_PULL_REQUEST = "request";
 	
 	public static final String NAME_ERROR_MESSAGE = "Error Message";
 	
 	public static final String NAME_LOG = "Log";
 	
+	public static final String PROP_TRIGGER_ID = "triggerId";
+	
 	public static final Set<String> ALL_FIELDS = Sets.newHashSet(
 			NAME_PROJECT, NAME_NUMBER, NAME_JOB, NAME_STATUS, NAME_SUBMITTER, NAME_CANCELLER, 
-			NAME_SUBMIT_DATE, NAME_PENDING_DATE, NAME_RUNNING_DATE, NAME_FINISH_DATE, 
-			NAME_COMMIT, NAME_VERSION, NAME_DEPENDENCIES, NAME_DEPENDENTS, NAME_ERROR_MESSAGE, 
-			NAME_LOG, NAME_IMAGE);
+			NAME_SUBMIT_DATE, NAME_PENDING_DATE, NAME_RUNNING_DATE, NAME_FINISH_DATE,
+			NAME_PULL_REQUEST, NAME_BRANCH, NAME_TAG, NAME_COMMIT, NAME_VERSION, NAME_DEPENDENCIES, 
+			NAME_DEPENDENTS, NAME_ERROR_MESSAGE, NAME_LOG, NAME_IMAGE, BuildMetric.NAME_REPORT);
 	
 	public static final List<String> QUERY_FIELDS = Lists.newArrayList(
-			NAME_PROJECT, NAME_JOB, NAME_NUMBER, NAME_VERSION, NAME_COMMIT, NAME_SUBMIT_DATE, 
-			NAME_PENDING_DATE, NAME_RUNNING_DATE, NAME_FINISH_DATE);
+			NAME_PROJECT, NAME_JOB, NAME_NUMBER, NAME_BRANCH, NAME_TAG, NAME_VERSION, NAME_PULL_REQUEST, 
+			NAME_COMMIT, NAME_SUBMIT_DATE, NAME_PENDING_DATE, NAME_RUNNING_DATE, NAME_FINISH_DATE);
 
+	public static final List<String> METRIC_QUERY_FIELDS = Lists.newArrayList(
+			NAME_JOB, NAME_BRANCH, NAME_PULL_REQUEST, BuildMetric.NAME_REPORT);
+	
 	public static final Map<String, String> ORDER_FIELDS = CollectionUtils.newLinkedHashMap(
 			NAME_JOB, PROP_JOB,
 			NAME_STATUS, PROP_STATUS,
@@ -216,11 +235,9 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	};
 	
-	public static final String STATUS = "status";
-	
 	public static final String ARTIFACTS_DIR = "artifacts";
 	
-	private static final int MAX_ERROR_MESSAGE_LEN = 16380;
+	private static final int MAX_ERROR_MESSAGE_LEN = 12000;
 	
 	public enum Status {
 		// Most significant status comes first, refer to getOverallStatus
@@ -262,6 +279,11 @@ public class Build extends AbstractEntity implements Referenceable {
 	@Column(nullable=false)
 	private String jobName;
 	
+	private String jobWorkspace;
+	
+	@Column(nullable=false)
+	private String refName;
+	
 	private String version;
 	
 	private long number;
@@ -283,7 +305,7 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	private Date retryDate;
 	
-	private String updatedRef;
+	private Integer finishDay;
 	
 	@Column(nullable=false, length=1000)
 	private String submitReason;
@@ -292,19 +314,22 @@ public class Build extends AbstractEntity implements Referenceable {
 	private String errorMessage;
 
 	@OneToMany(mappedBy="build", cascade=CascadeType.REMOVE)
-	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 	private Collection<BuildParam> params = new ArrayList<>();
 	
 	@OneToMany(mappedBy="dependent", cascade=CascadeType.REMOVE)
-	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 	private Collection<BuildDependence> dependencies = new ArrayList<>();
 	
 	@OneToMany(mappedBy="dependency", cascade=CascadeType.REMOVE)
-	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 	private Collection<BuildDependence> dependents= new ArrayList<>();
 	
 	@OneToMany(mappedBy="build", cascade=CascadeType.REMOVE)
-	private Collection<PullRequestVerification> verifications = new ArrayList<>();
+	private Collection<JestTestMetric> jestTestMetrics = new ArrayList<>();
+	
+	@OneToMany(mappedBy="build", cascade=CascadeType.REMOVE)
+	private Collection<CloverMetric> cloverMetrics = new ArrayList<>();
+	
+	@ManyToOne(fetch=FetchType.LAZY)
+	private PullRequest request;
 	
 	private transient Map<String, List<String>> paramMap;
 	
@@ -320,7 +345,7 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	private transient Map<Build.Status, Build> streamPreviousCache = new HashMap<>();
 	
-	private transient Map<Integer, Collection<Long>> numbersOfStreamPreviousCache = new HashMap<>();
+	private transient Map<Integer, Collection<Long>> streamPreviousNumbersCache = new HashMap<>();
 	
 	public Project getNumberScope() {
 		return numberScope;
@@ -386,6 +411,15 @@ public class Build extends AbstractEntity implements Referenceable {
 
 	public void setJobName(String jobName) {
 		this.jobName = jobName;
+	}
+
+	@Nullable
+	public String getJobWorkspace() {
+		return jobWorkspace;
+	}
+
+	public void setJobWorkspace(String jobWorkspace) {
+		this.jobWorkspace = jobWorkspace;
 	}
 
 	public String getVersion() {
@@ -497,6 +531,11 @@ public class Build extends AbstractEntity implements Referenceable {
 
 	public void setFinishDate(Date finishDate) {
 		this.finishDate = finishDate;
+		if (finishDate != null) {
+			finishDay = new Day(finishDate).getValue();
+		} else {
+			finishDay = null;
+		}
 	}
 
 	public Date getRetryDate() {
@@ -505,6 +544,11 @@ public class Build extends AbstractEntity implements Referenceable {
 
 	public void setRetryDate(Date retryDate) {
 		this.retryDate = retryDate;
+	}
+
+	@Nullable
+	public Integer getFinishDay() {
+		return finishDay;
 	}
 
 	public Collection<BuildParam> getParams() {
@@ -544,23 +588,39 @@ public class Build extends AbstractEntity implements Referenceable {
 		this.errorMessage = errorMessage;
 	}
 
-	@Nullable
-	public String getUpdatedRef() {
-		return updatedRef;
+	public String getRefName() {
+		return refName;
 	}
 
-	public void setUpdatedRef(String updatedRef) {
-		this.updatedRef = updatedRef;
-	}
-
-	public Collection<PullRequestVerification> getVerifications() {
-		return verifications;
-	}
-
-	public void setVerifications(Collection<PullRequestVerification> verifications) {
-		this.verifications = verifications;
+	public void setRefName(String refName) {
+		this.refName = refName;
 	}
 	
+	@Nullable
+	public String getBranch() {
+		if (refName != null)
+			return GitUtils.ref2branch(refName);
+		else
+			return null;
+	}
+
+	@Nullable
+	public String getTag() {
+		if (refName != null)
+			return GitUtils.ref2tag(refName);
+		else
+			return null;
+	}
+	
+	@Nullable
+	public PullRequest getRequest() {
+		return request;
+	}
+
+	public void setRequest(PullRequest request) {
+		this.request = request;
+	}
+
 	public Map<String, List<String>> getParamMap() {
 		if (paramMap == null) {
 			paramMap = new HashMap<>();
@@ -724,10 +784,10 @@ public class Build extends AbstractEntity implements Referenceable {
 					if (isOnBranches(secret.getAuthorizedBranches()))				
 						return secret.getValue();
 					else
-						throw new GeneralException("Job secret not authorized: " + secretName);
+						throw new ExplicitException("Job secret not authorized: " + secretName);
 				}
 			}
-			throw new GeneralException("No job secret found: " + secretName);
+			throw new ExplicitException("No job secret found: " + secretName);
 		}
 	}
 	
@@ -809,15 +869,15 @@ public class Build extends AbstractEntity implements Referenceable {
 		return streamPreviousCache.get(status);
 	}
 	
-	public Collection<Long> getNumbersOfStreamPrevious(int limit) {
-		if (numbersOfStreamPreviousCache == null) 
-			numbersOfStreamPreviousCache = new HashMap<>();
-		if (!numbersOfStreamPreviousCache.containsKey(limit)) {
+	public Collection<Long> getStreamPreviousNumbers(int limit) {
+		if (streamPreviousNumbersCache == null) 
+			streamPreviousNumbersCache = new HashMap<>();
+		if (!streamPreviousNumbersCache.containsKey(limit)) {
 			BuildManager buildManager = OneDev.getInstance(BuildManager.class);
-			numbersOfStreamPreviousCache.put(limit, buildManager.queryNumbersOfStreamPrevious(
+			streamPreviousNumbersCache.put(limit, buildManager.queryStreamPreviousNumbers(
 					this, null, EntityCriteria.IN_CLAUSE_LIMIT));
 		}
-		return numbersOfStreamPreviousCache.get(limit);
+		return streamPreviousNumbersCache.get(limit);
 	}
 	
 	public void retrieveArtifacts(Build dependency, String artifacts, File workspaceDir) {
@@ -849,7 +909,7 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	public String interpolate(@Nullable String interpolativeString) {
 		if (interpolativeString != null) 
-			return StringUtils.unescape(Interpolative.parse(interpolativeString).interpolateWith(new VariableInterpolator(this)));
+			return Interpolative.parse(interpolativeString).interpolateWith(new VariableInterpolator(this));
 		else 
 			return null;
 	}	
@@ -986,18 +1046,14 @@ public class Build extends AbstractEntity implements Referenceable {
 			branches = "**";
 		if (project.isCommitOnBranches(getCommitId(), branches)) {
 			return true;
-		} else {
+		} else if (getRequest() != null) {
 			PatternSet patternSet = PatternSet.parse(branches);
 			PathMatcher matcher = new PathMatcher();
-			for (PullRequestVerification verification: getVerifications()) {
-				PullRequest request = verification.getRequest();
-				if (project.equals(request.getSourceProject()) 
-						&& patternSet.matches(matcher, request.getTargetBranch())
-						&& request.getSourceBranch() != null 
-						&& patternSet.matches(matcher, request.getSourceBranch())) {
-					return true;
-				}
-			}
+			return project.equals(getRequest().getSourceProject()) 
+					&& patternSet.matches(matcher, getRequest().getTargetBranch())
+					&& getRequest().getSourceBranch() != null 
+					&& patternSet.matches(matcher, getRequest().getSourceBranch());
+		} else {
 			return false;
 		}
 	}

@@ -23,14 +23,14 @@ onedev.server.codeSupport = {
 		});
 		
 		cm.on("keyup", function(cm, event) {
-			if (event.keyCode == 50) {
+			if (event.key == "@") {
 		    	var cursor = cm.getCursor();
 		    	var line = cursor.line;
 		    	var start = cursor.ch;
 		    	
 		    	var beforeCursor = cm.doc.getLine(line).substring(0, start);
 		    	
-		    	var escapeFiltered = beforeCursor.replace("\\\\", "").replace("\\@", "");
+		    	var escapeFiltered = beforeCursor.replace("@@", "");
 		    	if ((escapeFiltered.match(/@/g) || []).length % 2 == 1) { // only show hint when type left @
 		    		function hint(cm, showHintCallback) {
 				    	var end = cm.getCursor().ch;

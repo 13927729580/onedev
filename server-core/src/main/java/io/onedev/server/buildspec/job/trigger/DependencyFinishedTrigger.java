@@ -36,13 +36,13 @@ public class DependencyFinishedTrigger extends JobTrigger {
 					return new SubmitReason() {
 
 						@Override
-						public String getUpdatedRef() {
-							return null;
+						public String getRefName() {
+							return build.getRefName();
 						}
 
 						@Override
 						public PullRequest getPullRequest() {
-							return null;
+							return build.getRequest();
 						}
 
 						@Override
